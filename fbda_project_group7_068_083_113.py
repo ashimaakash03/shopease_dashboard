@@ -362,7 +362,7 @@
       "metadata": {
         "id": "XCvU49KnI_ae"
       },
-      "execution_count": null,
+      "execution_count": None,
       "outputs": []
     },
     {
@@ -373,7 +373,7 @@
       "metadata": {
         "id": "1ZwiMap75DBa"
       },
-      "execution_count": null,
+      "execution_count": None,
       "outputs": []
     }
   ]
