@@ -1,380 +1,307 @@
-{
-  "nbformat": 4,
-  "nbformat_minor": 0,
-  "metadata": {
-    "colab": {
-      "provenance": [],
-      "private_outputs": True
-    },
-    "kernelspec": {
-      "name": "python3",
-      "display_name": "Python 3"
-    },
-    "language_info": {
-      "name": "python"
-    }
-  },
-  "cells": [
-    {
-      "cell_type": "code",
-      "source": [
-        "%%writefile streamlit_app.py\n",
-        "\n",
-        "import streamlit as st\n",
-        "import pandas as pd\n",
-        "import numpy as np\n",
-        "import plotly.express as px\n",
-        "from scipy import stats\n",
-        "\n",
-        "# Load and Read the complete dataset\n",
-        "data_url= \"https://docs.google.com/spreadsheets/d/1K6Rimz_lrrFRqLxup8UirZQYO-6mQryA3U-kpxFg3R4/edit?gid=1394848685#gid=1394848685\"\n",
-        "data_url_enhanced= data_url.replace(\"edit?gid=1394848685#gid=1394848685\", \"export?format=csv\")\n",
-        "df=pd.read_csv(data_url_enhanced)\n",
-        "\n",
-        "# Create a sample of 3001 records from 10020 rows\n",
-        "gr7_068_083_113_df= df.sample(n=3001, random_state=6883113)\n",
-        "\n",
-        "# Data Cleaning\n",
-        "gr7_068_083_113_df_clean = gr7_068_083_113_df.copy()\n",
-        "\n",
-        "# --- 1. Helper Functions ---\n",
-        "def sensitize_gender(val):\n",
-        "    if pd.isna(val):\n",
-        "        return np.nan\n",
-        "    val_str = str(val).strip().lower()\n",
-        "    if val_str in ['m', 'male']:\n",
-        "        return 'Male'\n",
-        "    elif val_str in ['f', 'female']:\n",
-        "        return 'Female'\n",
-        "    else:\n",
-        "        return val_str.title()\n",
-        "\n",
-        "def sensitize_discount(val):\n",
-        "    if pd.isna(val):\n",
-        "        return 0.0\n",
-        "    str_val = str(val).strip().replace('%', '')\n",
-        "    try:\n",
-        "        float_discount = float(str_val)\n",
-        "        return float_discount / 100 if float_discount > 1.0 else float_discount\n",
-        "    except ValueError:\n",
-        "        return 0.0\n",
-        "\n",
-        "def sensitize_age(val):\n",
-        "    if pd.isna(val) or val not in range(18, 80):\n",
-        "        return np.nan\n",
-        "    return int(val)\n",
-        "\n",
-        "def sensitize_text(val):\n",
-        "    if pd.isna(val) or str(val).strip().lower() in ['nan', 'none', '']:\n",
-        "        return np.nan\n",
-        "    return str(val).strip().title()\n",
-        "\n",
-        "# --- 2. Date Standardization ---\n",
-        "gr7_068_083_113_df_clean['OrderDate'] = pd.to_datetime(\n",
-        "    gr7_068_083_113_df_clean['OrderDate'],\n",
-        "    errors='coerce',\n",
-        "    format='mixed'\n",
-        ")\n",
-        "\n",
-        "gr7_068_083_113_df_clean['DeliveryDate'] = pd.to_datetime(\n",
-        "    gr7_068_083_113_df_clean['DeliveryDate'],\n",
-        "    errors='coerce',\n",
-        "    format='mixed'\n",
-        ")\n",
-        "\n",
-        "# --- 3. Apply Categorical & Text Cleaning ---\n",
-        "gr7_068_083_113_df_clean['Gender'] = gr7_068_083_113_df_clean['Gender'].apply(sensitize_gender)\n",
-        "gr7_068_083_113_df_clean['Discount'] = gr7_068_083_113_df_clean['Discount'].apply(sensitize_discount)\n",
-        "gr7_068_083_113_df_clean['CustomerAge'] = gr7_068_083_113_df_clean['CustomerAge'].apply(sensitize_age)\n",
-        "\n",
-        "gr7_068_083_113_df_clean['City'] = gr7_068_083_113_df_clean['City'].apply(sensitize_text)\n",
-        "gr7_068_083_113_df_clean['Category'] = gr7_068_083_113_df_clean['Category'].apply(sensitize_text)\n",
-        "gr7_068_083_113_df_clean['Product'] = gr7_068_083_113_df_clean['Product'].apply(sensitize_text)\n",
-        "gr7_068_083_113_df_clean['PaymentMethod'] = gr7_068_083_113_df_clean['PaymentMethod'].apply(sensitize_text)\n",
-        "gr7_068_083_113_df_clean['OrderStatus'] = gr7_068_083_113_df_clean['OrderStatus'].apply(sensitize_text).replace({'Canceled': 'Cancelled'})\n",
-        "\n",
-        "# --- 4. Numeric Cleaning & Price Anomaly Fixes ---\n",
-        "gr7_068_083_113_df_clean['Quantity'] = gr7_068_083_113_df_clean['Quantity'].abs()\n",
-        "gr7_068_083_113_df_clean['UnitPrice'] = gr7_068_083_113_df_clean['UnitPrice'].abs()\n",
-        "\n",
-        "gr7_068_083_113_df_clean['Rating'] = np.where(gr7_068_083_113_df_clean['Rating'].between(1, 5), gr7_068_083_113_df_clean['Rating'], np.nan)\n",
-        "gr7_068_083_113_df_clean['TotalAmount'] = (gr7_068_083_113_df_clean['Quantity'] * gr7_068_083_113_df_clean['UnitPrice'] * (1 - gr7_068_083_113_df_clean['Discount'])).abs()\n",
-        "\n",
-        "# Filter out rows where UnitPrice or TotalAmount are negative (after abs() it means they were originally NaN or otherwise invalid)\n",
-        "gr7_068_083_113_df_clean = gr7_068_083_113_df_clean[\n",
-        "    (gr7_068_083_113_df_clean['UnitPrice'] >= 0) &\n",
-        "    (gr7_068_083_113_df_clean['TotalAmount'] >= 0)]\n",
-        "\n",
-        "# Strating to build the dashboard\n",
-        "st.set_page_config(page_title=\"ShopEase Analytical Dashboard\", layout=\"wide\")\n",
-        "\n",
-        "st.title(\"🛍️ Analytical Dashboard: ShopEase Orders\")\n",
-        "st.markdown(\"---\")\n",
-        "\n",
-        "# --- SIDEBAR FILTERS ---\n",
-        "st.sidebar.header(\"🔍 Dynamic Filters\")\n",
-        "\n",
-        "valid_dates = gr7_068_083_113_df_clean['OrderDate'].dropna()\n",
-        "min_date = valid_dates.min().date()\n",
-        "max_date = valid_dates.max().date()\n",
-        "\n",
-        "date_range = st.sidebar.date_input(\"Select Date Range\", [min_date, max_date], min_value=min_date, max_value=max_date)\n",
-        "categories = st.sidebar.multiselect(\"Select Category\", options=gr7_068_083_113_df_clean['Category'].dropna().unique(), default=gr7_068_083_113_df_clean['Category'].dropna().unique())\n",
-        "cities = st.sidebar.multiselect(\"Select City\", options=gr7_068_083_113_df_clean['City'].dropna().unique(), default=gr7_068_083_113_df_clean['City'].dropna().unique())\n",
-        "statuses = st.sidebar.multiselect(\"Select Order Status\", options=gr7_068_083_113_df_clean['OrderStatus'].dropna().unique(), default=gr7_068_083_113_df_clean['OrderStatus'].dropna().unique())\n",
-        "payment_methods = st.sidebar.multiselect(\"Select Payment Methods\", options=gr7_068_083_113_df_clean['PaymentMethod'].dropna().unique(), default=gr7_068_083_113_df_clean['PaymentMethod'].dropna().unique())\n",
-        "\n",
-        "# --- FILTER DATA ---\n",
-        "filtered_df = gr7_068_083_113_df_clean[\n",
-        "    (gr7_068_083_113_df_clean['Category'].isin(categories)) &\n",
-        "    (gr7_068_083_113_df_clean['City'].isin(cities)) &\n",
-        "    (gr7_068_083_113_df_clean['OrderStatus'].isin(statuses)) &\n",
-        "    (gr7_068_083_113_df_clean['PaymentMethod'].isin(payment_methods))\n",
-        "]\n",
-        "\n",
-        "if len(date_range) == 2:\n",
-        "    start_date, end_date = date_range\n",
-        "    filtered_df = filtered_df[\n",
-        "        (filtered_df['OrderDate'].dt.date >= start_date) &\n",
-        "        (filtered_df['OrderDate'].dt.date <= end_date)\n",
-        "    ]\n",
-        "\n",
-        "st.sidebar.write(f\"Showing **{len(filtered_df)}** of **{len(gr7_068_083_113_df_clean)}** records\")\n",
-        "\n",
-        "# --- KPI METRICS ---\n",
-        "kpi1, kpi2, kpi3, kpi4 = st.columns(4)\n",
-        "kpi1.metric(\"Total Sales Revenue\", f\"${filtered_df['TotalAmount'].sum():,.2f}\")\n",
-        "kpi2.metric(\"Total Orders\", f\"{len(filtered_df):,}\")\n",
-        "kpi3.metric(\"Avg Order Value\", f\"${filtered_df['TotalAmount'].mean():,.2f}\")\n",
-        "kpi4.metric(\"Avg Customer Rating\", f\"{filtered_df['Rating'].mean():.2f} ⭐\")\n",
-        "\n",
-        "st.markdown(\"---\")\n",
-        "\n",
-        "# --- SECTION 1: NON-CATEGORICAL DESCRIPTIVE STATS ---\n",
-        "st.header(\"📊 1. Non-Categorical Data: Descriptive Statistics\")\n",
-        "num_cols = ['CustomerAge', 'Quantity', 'UnitPrice', 'Discount', 'Rating', 'TotalAmount']\n",
-        "\n",
-        "stats_dict = {}\n",
-        "for col in num_cols:\n",
-        "    series = filtered_df[col].dropna()\n",
-        "    if len(series) > 0:\n",
-        "        stats_dict[col] = {\n",
-        "            \"Count\": len(series),\n",
-        "            \"Mean\": series.mean(),\n",
-        "            \"Median\": series.median(),\n",
-        "            \"Mode\": series.mode().iloc[0] if not series.mode().empty else np.nan,\n",
-        "            \"Std Dev\": series.std(),\n",
-        "            \"Min\": series.min(),\n",
-        "            \"Max\": series.max(),\n",
-        "            \"Range\": series.max() - series.min(),\n",
-        "            \"Skewness\": series.skew(),\n",
-        "            \"Kurtosis\": series.kurtosis(),\n",
-        "            \"25th Pct\": series.quantile(0.25),\n",
-        "            \"75th Pct\": series.quantile(0.75),\n",
-        "        }\n",
-        "\n",
-        "stats_df = pd.DataFrame(stats_dict).T\n",
-        "st.dataframe(stats_df.style.format(\"{:.2f}\"))\n",
-        "\n",
-        "st.markdown(\"---\")\n",
-        "\n",
-        "# --- SECTION 2: CATEGORICAL DATA STATS ---\n",
-        "st.header(\"🏷️ 2. Categorical Data Statistics\")\n",
-        "cat_col_choice = st.selectbox(\"Select Categorical Feature to Analyze:\", ['Category', 'City', 'Gender', 'PaymentMethod', 'OrderStatus'])\n",
-        "\n",
-        "cat_series = filtered_df[cat_col_choice].dropna()\n",
-        "cat_counts = cat_series.value_counts().reset_index()\n",
-        "cat_counts.columns = [cat_col_choice, 'Frequency']\n",
-        "cat_counts['Relative Frequency (%)'] = (cat_counts['Frequency'] / len(cat_series) * 100).round(2)\n",
-        "\n",
-        "col_table, col_chart = st.columns([1, 1])\n",
-        "with col_table:\n",
-        "    st.subheader(f\"Frequency Breakdown: {cat_col_choice}\")\n",
-        "    st.dataframe(cat_counts)\n",
-        "    if len(cat_counts) > 0:\n",
-        "        highest_cat = cat_counts.iloc[0]\n",
-        "        lowest_cat = cat_counts.iloc[-1]\n",
-        "        st.info(f\"**Highest:** {highest_cat[cat_col_choice]} ({highest_cat['Frequency']} orders, {highest_cat['Relative Frequency (%)']}%)\")\n",
-        "        st.warning(f\"**Lowest:** {lowest_cat[cat_col_choice]} ({lowest_cat['Frequency']} orders, {lowest_cat['Relative Frequency (%)']}%)\")\n",
-        "\n",
-        "with col_chart:\n",
-        "    st.subheader(\"Distribution Chart\")\n",
-        "    fig_bar = px.bar(cat_counts, x=cat_col_choice, y='Frequency', text='Relative Frequency (%)', color=cat_col_choice, title=f\"Order Distribution by {cat_col_choice}\")\n",
-        "    st.plotly_chart(fig_bar, use_container_width=True)\n",
-        "\n",
-        "st.markdown(\"---\")\n",
-        "\n",
-        "# --- SECTION 3: VISUALIZATIONS ---\n",
-        "st.header(\"📈 3. Interactive Visual Explorations\")\n",
-        "tab1, tab2, tab3, tab4 = st.tabs([\"Distributions\", \"Category Comparisons\", \"Correlation Heatmap\", \"Scatter Analysis\"])\n",
-        "\n",
-        "with tab1:\n",
-        "  dist_var = st.selectbox(\n",
-        "      \"Select Numerical Feature:\",\n",
-        "      [\"TotalAmount\", \"CustomerAge\", \"UnitPrice\", \"Discount\", \"Rating\"],\n",
-        "  )\n",
-        "\n",
-        "  fig_hist = px.histogram(\n",
-        "      filtered_df,\n",
-        "      x=dist_var,\n",
-        "      nbins=30,\n",
-        "      marginal=\"box\",\n",
-        "      title=f\"Distribution of {dist_var}\",\n",
-        "  )\n",
-        "\n",
-        "  # Prevent negative axis ranges\n",
-        "  fig_hist.update_xaxes(rangemode=\"nonnegative\")\n",
-        "\n",
-        "  # Apply xbins ONLY to the histogram trace (ignoring the box marginal trace)\n",
-        "  fig_hist.update_traces(\n",
-        "      selector=dict(type=\"histogram\"), xbins=dict(start=0)\n",
-        "  )\n",
-        "\n",
-        "  st.plotly_chart(fig_hist, use_container_width=True)\n",
-        "\n",
-        "with tab2:\n",
-        "    fig_box = px.box(filtered_df, x='Category', y='TotalAmount', color='Category', points=\"outliers\", title=\"Total Amount Distribution across Categories\")\n",
-        "    st.plotly_chart(fig_box, use_container_width=True)\n",
-        "\n",
-        "with tab3:\n",
-        "    st.subheader(\"Measures of Correlation Matrix\")\n",
-        "    corr_vars = filtered_df[['CustomerAge', 'Quantity', 'UnitPrice', 'Discount', 'Rating', 'TotalAmount']].dropna()\n",
-        "    corr_type = st.radio(\"Correlation Metric:\", [\"Pearson\", \"Spearman\"], horizontal=True)\n",
-        "    corr_matrix = corr_vars.corr(method=corr_type.lower())\n",
-        "    fig_corr = px.imshow(corr_matrix, text_auto=\".2f\", aspect=\"auto\", color_continuous_scale=\"Blues\", title=f\"{corr_type} Correlation Matrix\")\n",
-        "    st.plotly_chart(fig_corr, use_container_width=True)\n",
-        "\n",
-        "with tab4:\n",
-        "    fig_scatter = px.scatter(filtered_df, x='UnitPrice', y='TotalAmount', color='Category', size='Quantity', hover_data=['Product', 'City'], title=\"UnitPrice vs. TotalAmount\")\n",
-        "    st.plotly_chart(fig_scatter, use_container_width=True)\n",
-        "\n",
-        "st.markdown(\"---\")\n",
-        "\n",
-        "# --- SECTION 4: INFERENTIAL STATISTICS & HYPOTHESIS TESTING ---\n",
-        "st.header(\"🔬 4. Inferential Statistics & Hypothesis Testing\")\n",
-        "\n",
-        "inf_tab1, inf_tab2, inf_tab3 = st.tabs([\"Normality Testing\", \"Mean / Median Comparison\", \"Chi-Square Independence Test\"])\n",
-        "\n",
-        "with inf_tab1:\n",
-        "    st.subheader(\"Test of Normality (Shapiro-Wilk)\")\n",
-        "    norm_var = st.selectbox(\"Select Metric for Normality Testing:\", ['TotalAmount', 'UnitPrice', 'CustomerAge', 'Rating'])\n",
-        "    norm_series = filtered_df[norm_var].dropna()\n",
-        "\n",
-        "    if len(norm_series) > 3:\n",
-        "        # Shapiro-Wilk (capped at 500 samples per SciPy recommendation)\n",
-        "        shapiro_stat, shapiro_p = stats.shapiro(norm_series[:500])\n",
-        "\n",
-        "        norm_results = pd.DataFrame({\n",
-        "            \"Statistical Test\": [\"Shapiro-Wilk (N=500)\"],\n",
-        "            \"Test Statistic\": [shapiro_stat],\n",
-        "            \"p-value\": [shapiro_p],\n",
-        "            \"Conclusion (α = 0.05)\": [\n",
-        "                \"Reject H0 (Non-Normal)\" if shapiro_p < 0.05 else \"Fail to Reject H0 (Normal)\"\n",
-        "            ]\n",
-        "        })\n",
-        "        st.dataframe(norm_results.style.format({\"Test Statistic\": \"{:.4f}\", \"p-value\": \"{:.4e}\"}))\n",
-        "\n",
-        "        st.markdown(\"**Null Hypothesis (H0):** The data is drawn from a normal distribution.\")\n",
-        "        st.markdown(\"**Alternate Hypothesis (H1):** The data is NOT drawn from a normal distribution.\")\n",
-        "        st.markdown(f\"**Obtained p-value:** {shapiro_p:.4e}\")\n",
-        "        st.markdown(\"If the p-value is less than the significance level (e.g., 0.05), we reject the null hypothesis and conclude that the data is not normally distributed.\")\n",
-        "\n",
-        "with inf_tab2:\n",
-        "    st.subheader(\"Comparison of Sales Revenue across Product Categories\")\n",
-        "    col_param = st.columns(1)\n",
-        "\n",
-        "    # Prepare category arrays\n",
-        "    cat_groups = [group['TotalAmount'].dropna().values for name, group in filtered_df.groupby('Category') if len(group) > 0]\n",
-        "\n",
-        "    if len(cat_groups) > 1:\n",
-        "        # Parametric One-Way ANOVA\n",
-        "        f_stat, f_p = stats.f_oneway(*cat_groups)\n",
-        "\n",
-        "        with col_param[0]:\n",
-        "            st.write(\"### 1. One-Way ANOVA (Parametric)\")\n",
-        "            st.metric(\"F-Statistic\", f\"{f_stat:.4f}\")\n",
-        "            st.metric(\"p-value\", f\"{f_p:.4e}\")\n",
-        "            if f_p < 0.05:\n",
-        "                st.success(\"Significant difference in mean TotalAmount across categories.\")\n",
-        "            else:\n",
-        "                st.info(\"No significant difference in mean TotalAmount across categories.\")\n",
-        "\n",
-        "            st.markdown(\"**Null Hypothesis (H0):** The mean total amount is the same across all product categories.\")\n",
-        "            st.markdown(\"**Alternate Hypothesis (H1):** The mean total amount is different for at least one product category.\")\n",
-        "            st.markdown(f\"**Obtained p-value:** {f_p:.4e}\")\n",
-        "            st.markdown(\"If the p-value is less than the significance level (e.g., 0.05), we reject the null hypothesis and conclude that there is a significant difference in mean total amount across categories.\")\n",
-        "\n",
-        "with inf_tab3:\n",
-        "    st.subheader(\"Chi-Square Test of Independence\")\n",
-        "    st.write(\"Testing association between Payment Method and Order Status.\")\n",
-        "\n",
-        "    contingency = pd.crosstab(filtered_df['PaymentMethod'], filtered_df['OrderStatus'])\n",
-        "    st.write(\"#### Contingency Table:\")\n",
-        "    st.dataframe(contingency)\n",
-        "\n",
-        "    if contingency.size > 0:\n",
-        "        chi2, chi2_p, dof, _ = stats.chi2_contingency(contingency)\n",
-        "        c1, c2, c3 = st.columns(3)\n",
-        "        c1.metric(\"Chi-Square Statistic\", f\"{chi2:.4f}\")\n",
-        "        c2.metric(\"Degrees of Freedom\", f\"{dof}\")\n",
-        "        c3.metric(\"p-value\", f\"{chi2_p:.4f}\")\n",
-        "\n",
-        "        if chi2_p < 0.05:\n",
-        "            st.success(\"Reject H0: Payment Method and Order Status are dependent.\")\n",
-        "        else:\n",
-        "            st.info(\"Fail to Reject H0: Payment Method and Order Status are independent.\")\n",
-        "\n",
-        "st.markdown(\"---\")"
-      ],
-      "metadata": {
-        "id": "Mj7hb5BjxTTr"
-      },
-      "execution_count": None,
-      "outputs": []
-    },
-    {
-      "cell_type": "code",
-      "source": [
-        "# 1. Install Streamlit in this new Colab session\n",
-        "!pip install streamlit --quiet\n",
-        "\n",
-        "# 2. Clean out all active streams and tunnels from today\n",
-        "!pkill streamlit\n",
-        "!pkill ssh\n",
-        "\n",
-        "# 3. Restart Streamlit using the strict cross-origin bypass flags\n",
-        "!streamlit run streamlit_app.py --server.enableCORS=false --server.enableXsrfProtection=false &>/content/logs.txt &\n",
-        "\n",
-        "# 4. Give the background server a moment to spin up\n",
-        "import time\n",
-        "time.sleep(3)\n",
-        "\n",
-        "# 5. Launch the Pinggy tunnel\n",
-        "!ssh -p 443 -o StrictHostKeyChecking=no -R0:localhost:8501 free.pinggy.io > pinggy_output.txt 2>&1 &\n",
-        "\n",
-        "# 6. Extract and print your new working link\n",
-        "time.sleep(3)\n",
-        "with open(\"pinggy_output.txt\", \"r\") as f:\n",
-        "    for line in f:\n",
-        "        if \"pinggy-free.link\" in line:\n",
-        "            print(f\"👉 DASHBOARD LINK: {line.strip()}\")"
-      ],
-      "metadata": {
-        "id": "XCvU49KnI_ae"
-      },
-      "execution_count": None,
-      "outputs": []
-    },
-    {
-      "cell_type": "code",
-      "source": [
-        "!cat /content/logs.txt"
-      ],
-      "metadata": {
-        "id": "1ZwiMap75DBa"
-      },
-      "execution_count": None,
-      "outputs": []
-    }
-  ]
-}
+%%writefile streamlit_app.py
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
+from scipy import stats
+
+# Load and Read the complete dataset
+data_url= "https://docs.google.com/spreadsheets/d/1K6Rimz_lrrFRqLxup8UirZQYO-6mQryA3U-kpxFg3R4/edit?gid=1394848685#gid=1394848685"
+data_url_enhanced= data_url.replace("edit?gid=1394848685#gid=1394848685", "export?format=csv")
+df=pd.read_csv(data_url_enhanced)
+
+# Create a sample of 3001 records from 10020 rows
+gr7_068_083_113_df= df.sample(n=3001, random_state=6883113)
+
+# Data Cleaning
+gr7_068_083_113_df_clean = gr7_068_083_113_df.copy()
+
+# --- 1. Helper Functions ---
+def sensitize_gender(val):
+    if pd.isna(val):
+        return np.nan
+    val_str = str(val).strip().lower()
+    if val_str in ['m', 'male']:
+        return 'Male'
+    elif val_str in ['f', 'female']:
+        return 'Female'
+    else:
+        return val_str.title()
+
+def sensitize_discount(val):
+    if pd.isna(val):
+        return 0.0
+    str_val = str(val).strip().replace('%', '')
+    try:
+        float_discount = float(str_val)
+        return float_discount / 100 if float_discount > 1.0 else float_discount
+    except ValueError:
+        return 0.0
+
+def sensitize_age(val):
+    if pd.isna(val) or val not in range(18, 80):
+        return np.nan
+    return int(val)
+
+def sensitize_text(val):
+    if pd.isna(val) or str(val).strip().lower() in ['nan', 'none', '']:
+        return np.nan
+    return str(val).strip().title()
+
+# --- 2. Date Standardization ---
+gr7_068_083_113_df_clean['OrderDate'] = pd.to_datetime(
+    gr7_068_083_113_df_clean['OrderDate'],
+    errors='coerce',
+    format='mixed'
+)
+
+gr7_068_083_113_df_clean['DeliveryDate'] = pd.to_datetime(
+    gr7_068_083_113_df_clean['DeliveryDate'],
+    errors='coerce',
+    format='mixed'
+)
+
+# --- 3. Apply Categorical & Text Cleaning ---
+gr7_068_083_113_df_clean['Gender'] = gr7_068_083_113_df_clean['Gender'].apply(sensitize_gender)
+gr7_068_083_113_df_clean['Discount'] = gr7_068_083_113_df_clean['Discount'].apply(sensitize_discount)
+gr7_068_083_113_df_clean['CustomerAge'] = gr7_068_083_113_df_clean['CustomerAge'].apply(sensitize_age)
+
+gr7_068_083_113_df_clean['City'] = gr7_068_083_113_df_clean['City'].apply(sensitize_text)
+gr7_068_083_113_df_clean['Category'] = gr7_068_083_113_df_clean['Category'].apply(sensitize_text)
+gr7_068_083_113_df_clean['Product'] = gr7_068_083_113_df_clean['Product'].apply(sensitize_text)
+gr7_068_083_113_df_clean['PaymentMethod'] = gr7_068_083_113_df_clean['PaymentMethod'].apply(sensitize_text)
+gr7_068_083_113_df_clean['OrderStatus'] = gr7_068_083_113_df_clean['OrderStatus'].apply(sensitize_text).replace({'Canceled': 'Cancelled'})
+
+# --- 4. Numeric Cleaning & Price Anomaly Fixes ---
+gr7_068_083_113_df_clean['Quantity'] = gr7_068_083_113_df_clean['Quantity'].abs()
+gr7_068_083_113_df_clean['UnitPrice'] = gr7_068_083_113_df_clean['UnitPrice'].abs()
+
+gr7_068_083_113_df_clean['Rating'] = np.where(gr7_068_083_113_df_clean['Rating'].between(1, 5), gr7_068_083_113_df_clean['Rating'], np.nan)
+gr7_068_083_113_df_clean['TotalAmount'] = (gr7_068_083_113_df_clean['Quantity'] * gr7_068_083_113_df_clean['UnitPrice'] * (1 - gr7_068_083_113_df_clean['Discount'])).abs()
+
+# Filter out rows where UnitPrice or TotalAmount are negative (after abs() it means they were originally NaN or otherwise invalid)
+gr7_068_083_113_df_clean = gr7_068_083_113_df_clean[
+    (gr7_068_083_113_df_clean['UnitPrice'] >= 0) &
+    (gr7_068_083_113_df_clean['TotalAmount'] >= 0)]
+
+# Strating to build the dashboard
+st.set_page_config(page_title="ShopEase Analytical Dashboard", layout="wide")
+
+st.title("🛍️ Analytical Dashboard: ShopEase Orders")
+st.markdown("---")
+
+# --- SIDEBAR FILTERS ---
+st.sidebar.header("🔍 Dynamic Filters")
+
+valid_dates = gr7_068_083_113_df_clean['OrderDate'].dropna()
+min_date = valid_dates.min().date()
+max_date = valid_dates.max().date()
+
+date_range = st.sidebar.date_input("Select Date Range", [min_date, max_date], min_value=min_date, max_value=max_date)
+categories = st.sidebar.multiselect("Select Category", options=gr7_068_083_113_df_clean['Category'].dropna().unique(), default=gr7_068_083_113_df_clean['Category'].dropna().unique())
+cities = st.sidebar.multiselect("Select City", options=gr7_068_083_113_df_clean['City'].dropna().unique(), default=gr7_068_083_113_df_clean['City'].dropna().unique())
+statuses = st.sidebar.multiselect("Select Order Status", options=gr7_068_083_113_df_clean['OrderStatus'].dropna().unique(), default=gr7_068_083_113_df_clean['OrderStatus'].dropna().unique())
+payment_methods = st.sidebar.multiselect("Select Payment Methods", options=gr7_068_083_113_df_clean['PaymentMethod'].dropna().unique(), default=gr7_068_083_113_df_clean['PaymentMethod'].dropna().unique())
+
+# --- FILTER DATA ---
+filtered_df = gr7_068_083_113_df_clean[
+    (gr7_068_083_113_df_clean['Category'].isin(categories)) &
+    (gr7_068_083_113_df_clean['City'].isin(cities)) &
+    (gr7_068_083_113_df_clean['OrderStatus'].isin(statuses)) &
+    (gr7_068_083_113_df_clean['PaymentMethod'].isin(payment_methods))
+]
+
+if len(date_range) == 2:
+    start_date, end_date = date_range
+    filtered_df = filtered_df[
+        (filtered_df['OrderDate'].dt.date >= start_date) &
+        (filtered_df['OrderDate'].dt.date <= end_date)
+    ]
+
+st.sidebar.write(f"Showing **{len(filtered_df)}** of **{len(gr7_068_083_113_df_clean)}** records")
+
+# --- KPI METRICS ---
+kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+kpi1.metric("Total Sales Revenue", f"${filtered_df['TotalAmount'].sum():,.2f}")
+kpi2.metric("Total Orders", f"{len(filtered_df):,}")
+kpi3.metric("Avg Order Value", f"${filtered_df['TotalAmount'].mean():,.2f}")
+kpi4.metric("Avg Customer Rating", f"{filtered_df['Rating'].mean():.2f} ⭐")
+
+st.markdown("---")
+
+# --- SECTION 1: NON-CATEGORICAL DESCRIPTIVE STATS ---
+st.header("📊 1. Non-Categorical Data: Descriptive Statistics")
+num_cols = ['CustomerAge', 'Quantity', 'UnitPrice', 'Discount', 'Rating', 'TotalAmount']
+
+stats_dict = {}
+for col in num_cols:
+    series = filtered_df[col].dropna()
+    if len(series) > 0:
+        stats_dict[col] = {
+            "Count": len(series),
+            "Mean": series.mean(),
+            "Median": series.median(),
+            "Mode": series.mode().iloc[0] if not series.mode().empty else np.nan,
+            "Std Dev": series.std(),
+            "Min": series.min(),
+            "Max": series.max(),
+            "Range": series.max() - series.min(),
+            "Skewness": series.skew(),
+            "Kurtosis": series.kurtosis(),
+            "25th Pct": series.quantile(0.25),
+            "75th Pct": series.quantile(0.75),
+        }
+
+stats_df = pd.DataFrame(stats_dict).T
+st.dataframe(stats_df.style.format("{:.2f}"))
+
+st.markdown("---")
+
+# --- SECTION 2: CATEGORICAL DATA STATS ---
+st.header("🏷️ 2. Categorical Data Statistics")
+cat_col_choice = st.selectbox("Select Categorical Feature to Analyze:", ['Category', 'City', 'Gender', 'PaymentMethod', 'OrderStatus'])
+
+cat_series = filtered_df[cat_col_choice].dropna()
+cat_counts = cat_series.value_counts().reset_index()
+cat_counts.columns = [cat_col_choice, 'Frequency']
+cat_counts['Relative Frequency (%)'] = (cat_counts['Frequency'] / len(cat_series) * 100).round(2)
+
+col_table, col_chart = st.columns([1, 1])
+with col_table:
+    st.subheader(f"Frequency Breakdown: {cat_col_choice}")
+    st.dataframe(cat_counts)
+    if len(cat_counts) > 0:
+        highest_cat = cat_counts.iloc[0]
+        lowest_cat = cat_counts.iloc[-1]
+        st.info(f"**Highest:** {highest_cat[cat_col_choice]} ({highest_cat['Frequency']} orders, {highest_cat['Relative Frequency (%)']}%)")
+        st.warning(f"**Lowest:** {lowest_cat[cat_col_choice]} ({lowest_cat['Frequency']} orders, {lowest_cat['Relative Frequency (%)']}%)")
+
+with col_chart:
+    st.subheader("Distribution Chart")
+    fig_bar = px.bar(cat_counts, x=cat_col_choice, y='Frequency', text='Relative Frequency (%)', color=cat_col_choice, title=f"Order Distribution by {cat_col_choice}")
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+st.markdown("---")
+
+# --- SECTION 3: VISUALIZATIONS ---
+st.header("📈 3. Interactive Visual Explorations")
+tab1, tab2, tab3, tab4 = st.tabs(["Distributions", "Category Comparisons", "Correlation Heatmap", "Scatter Analysis"])
+
+with tab1:
+  dist_var = st.selectbox(
+      "Select Numerical Feature:",
+      ["TotalAmount", "CustomerAge", "UnitPrice", "Discount", "Rating"],
+  )
+
+  fig_hist = px.histogram(
+      filtered_df,
+      x=dist_var,
+      nbins=30,
+      marginal="box",
+      title=f"Distribution of {dist_var}",
+  )
+
+  # Prevent negative axis ranges
+  fig_hist.update_xaxes(rangemode="nonnegative")
+
+  # Apply xbins ONLY to the histogram trace (ignoring the box marginal trace)
+  fig_hist.update_traces(
+      selector=dict(type="histogram"), xbins=dict(start=0)
+  )
+
+  st.plotly_chart(fig_hist, use_container_width=True)
+
+with tab2:
+    fig_box = px.box(filtered_df, x='Category', y='TotalAmount', color='Category', points="outliers", title="Total Amount Distribution across Categories")
+    st.plotly_chart(fig_box, use_container_width=True)
+
+with tab3:
+    st.subheader("Measures of Correlation Matrix")
+    corr_vars = filtered_df[['CustomerAge', 'Quantity', 'UnitPrice', 'Discount', 'Rating', 'TotalAmount']].dropna()
+    corr_type = st.radio("Correlation Metric:", ["Pearson", "Spearman"], horizontal=True)
+    corr_matrix = corr_vars.corr(method=corr_type.lower())
+    fig_corr = px.imshow(corr_matrix, text_auto=".2f", aspect="auto", color_continuous_scale="Blues", title=f"{corr_type} Correlation Matrix")
+    st.plotly_chart(fig_corr, use_container_width=True)
+
+with tab4:
+    fig_scatter = px.scatter(filtered_df, x='UnitPrice', y='TotalAmount', color='Category', size='Quantity', hover_data=['Product', 'City'], title="UnitPrice vs. TotalAmount")
+    st.plotly_chart(fig_scatter, use_container_width=True)
+
+st.markdown("---")
+
+# --- SECTION 4: INFERENTIAL STATISTICS & HYPOTHESIS TESTING ---
+st.header("🔬 4. Inferential Statistics & Hypothesis Testing")
+
+inf_tab1, inf_tab2, inf_tab3 = st.tabs(["Normality Testing", "Mean / Median Comparison", "Chi-Square Independence Test"])
+
+with inf_tab1:
+    st.subheader("Test of Normality (Shapiro-Wilk)")
+    norm_var = st.selectbox("Select Metric for Normality Testing:", ['TotalAmount', 'UnitPrice', 'CustomerAge', 'Rating'])
+    norm_series = filtered_df[norm_var].dropna()
+
+    if len(norm_series) > 3:
+        # Shapiro-Wilk (capped at 500 samples per SciPy recommendation)
+        shapiro_stat, shapiro_p = stats.shapiro(norm_series[:500])
+
+        norm_results = pd.DataFrame({
+            "Statistical Test": ["Shapiro-Wilk (N=500)"],
+            "Test Statistic": [shapiro_stat],
+            "p-value": [shapiro_p],
+            "Conclusion (α = 0.05)": [
+                "Reject H0 (Non-Normal)" if shapiro_p < 0.05 else "Fail to Reject H0 (Normal)"
+            ]
+        })
+        st.dataframe(norm_results.style.format({"Test Statistic": "{:.4f}", "p-value": "{:.4e}"}))
+
+        st.markdown("**Null Hypothesis (H0):** The data is drawn from a normal distribution.")
+        st.markdown("**Alternate Hypothesis (H1):** The data is NOT drawn from a normal distribution.")
+        st.markdown(f"**Obtained p-value:** {shapiro_p:.4e}")
+        st.markdown("If the p-value is less than the significance level (e.g., 0.05), we reject the null hypothesis and conclude that the data is not normally distributed.")
+
+with inf_tab2:
+    st.subheader("Comparison of Sales Revenue across Product Categories")
+    col_param = st.columns(1)
+
+    # Prepare category arrays
+    cat_groups = [group['TotalAmount'].dropna().values for name, group in filtered_df.groupby('Category') if len(group) > 0]
+
+    if len(cat_groups) > 1:
+        # Parametric One-Way ANOVA
+        f_stat, f_p = stats.f_oneway(*cat_groups)
+
+        with col_param[0]:
+            st.write("### 1. One-Way ANOVA (Parametric)")
+            st.metric("F-Statistic", f"{f_stat:.4f}")
+            st.metric("p-value", f"{f_p:.4e}")
+            if f_p < 0.05:
+                st.success("Significant difference in mean TotalAmount across categories.")
+            else:
+                st.info("No significant difference in mean TotalAmount across categories.")
+
+            st.markdown("**Null Hypothesis (H0):** The mean total amount is the same across all product categories.")
+            st.markdown("**Alternate Hypothesis (H1):** The mean total amount is different for at least one product category.")
+            st.markdown(f"**Obtained p-value:** {f_p:.4e}")
+            st.markdown("If the p-value is less than the significance level (e.g., 0.05), we reject the null hypothesis and conclude that there is a significant difference in mean total amount across categories.")
+
+with inf_tab3:
+    st.subheader("Chi-Square Test of Independence")
+    st.write("Testing association between Payment Method and Order Status.")
+
+    contingency = pd.crosstab(filtered_df['PaymentMethod'], filtered_df['OrderStatus'])
+    st.write("#### Contingency Table:")
+    st.dataframe(contingency)
+
+    if contingency.size > 0:
+        chi2, chi2_p, dof, _ = stats.chi2_contingency(contingency)
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Chi-Square Statistic", f"{chi2:.4f}")
+        c2.metric("Degrees of Freedom", f"{dof}")
+        c3.metric("p-value", f"{chi2_p:.4f}")
+
+        if chi2_p < 0.05:
+            st.success("Reject H0: Payment Method and Order Status are dependent.")
+        else:
+            st.info("Fail to Reject H0: Payment Method and Order Status are independent.")
+
+st.markdown("---")
