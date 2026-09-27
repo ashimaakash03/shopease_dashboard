@@ -4,7 +4,7 @@
   "metadata": {
     "colab": {
       "provenance": [],
-      "private_outputs": true
+      "private_outputs": True
     },
     "kernelspec": {
       "name": "python3",
